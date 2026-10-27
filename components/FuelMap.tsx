@@ -89,7 +89,19 @@ export default function FuelMap() {
   // Create the map once.
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
-    const map = L.map(mapEl.current, { zoomSnap: 0.25, preferCanvas: true, minZoom: 6, maxZoom: 18 }).fitBounds(IRELAND);
+    const map = L.map(mapEl.current, {
+      zoomSnap: 0.25,
+      preferCanvas: true,
+      minZoom: 6,
+      maxZoom: 18,
+      maxBounds: [[50.3, -12.5], [56.6, -3.8]],
+      maxBoundsViscosity: 0.8,
+    }).fitBounds(IRELAND);
+    // The container can still be sizing when the map is created (it loads after the page),
+    // so re-measure and re-frame Ireland once the layout has settled, and on any resize.
+    requestAnimationFrame(() => { map.invalidateSize(); map.fitBounds(IRELAND); });
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(mapEl.current);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Stations: Radius e-route',
@@ -97,7 +109,7 @@ export default function FuelMap() {
     layerRef.current = L.layerGroup().addTo(map);
     youRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { ro.disconnect(); map.remove(); mapRef.current = null; };
   }, []);
 
   const col = CARDS.find((c) => c.key === card)!.col;
@@ -159,8 +171,7 @@ export default function FuelMap() {
       return;
     }
     setGeo({ kind: "locating" });
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    const onSuccess = (pos: GeolocationPosition) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
         const list = rankNearest(lat, lng, visible.ok);
         setGeo({ kind: "done", lat, lng, accuracy, list });
@@ -172,17 +183,29 @@ export default function FuelMap() {
         L.circleMarker([lat, lng], { radius: 8, color: "#fff", weight: 3, fillColor: blue, fillOpacity: 1 }).bindTooltip("You are here").addTo(you);
         const pts: L.LatLngExpression[] = [[lat, lng], ...list.map((n) => [n.row[3], n.row[4]] as L.LatLngExpression)];
         map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [30, 90], paddingBottomRight: [30, Math.round(window.innerHeight * 0.45)], maxZoom: 14 });
-      },
+    };
+    const onFinalError = (err: GeolocationPositionError) => {
+      const message =
+        err.code === err.PERMISSION_DENIED
+          ? "Location is turned off for this site. Allow location for this page in your browser settings, then try again."
+          : err.code === err.TIMEOUT
+            ? "Couldn't find your location in time. On a phone, check location is switched on and try again."
+            : "Couldn't find your location. Try again in a moment.";
+      setGeo({ kind: "error", message });
+    };
+    // Try GPS first. If that times out or isn't available (e.g. a laptop with no GPS,
+    // or indoors), fall back to the less precise Wi-Fi/network location.
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
       (err) => {
-        const message =
-          err.code === err.PERMISSION_DENIED
-            ? "Location is turned off for this site. Allow location for this page in your phone's browser settings, then try again."
-            : err.code === err.TIMEOUT
-              ? "Couldn't get a GPS fix in time. Move somewhere with a clearer view of the sky and try again."
-              : "Couldn't find your location. Try again in a moment.";
-        setGeo({ kind: "error", message });
+        if (err.code === err.PERMISSION_DENIED) return onFinalError(err);
+        navigator.geolocation.getCurrentPosition(onSuccess, onFinalError, {
+          enableHighAccuracy: false,
+          timeout: 20000,
+          maximumAge: 300000,
+        });
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
   }
 
