@@ -1,0 +1,13 @@
+{
+  "name": "DCI Fuel Finder",
+  "short_name": "DCI Fuel",
+  "description": "Nearest no-premium DCI fuel stations in Northern Ireland and the Republic of Ireland.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f5f4",
+  "theme_color": "#0f8a5f",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
